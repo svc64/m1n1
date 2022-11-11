@@ -20,6 +20,9 @@ class BootRomStatus(IntEnum):
     STATUS_BOOT_IMG4_DONE = 0x6A
     STATUS_BOOT_UNK_DONE = 0xD2
 
+class UnkFDMsg(IntEnum):
+    REPORT_APP_NAME = 0
+    REPORT_APP_STATUS = 1
 
 class SEPMessage(Register64):
     EP = 7, 0

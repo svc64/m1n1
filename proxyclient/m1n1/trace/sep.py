@@ -3,6 +3,7 @@ from m1n1.hw.sep import *
 
 ASCTracer = ASCTracer._reloadcls()
 
+SEPOSApps = {}
 
 class SEPTracer(EP):
     BASE_MESSAGE = SEPMessage
@@ -26,13 +27,6 @@ class SEPTracer(EP):
         self.debug_shell()
 
 class SEPROMTracer(SEPTracer):
-    BASE_MESSAGE = SEPMessage
-
-    def __init__(self, tracer, epid):
-        super().__init__(tracer, epid)
-        self.state.sram_addr = None
-        self.state.verbose = 1
-
     @msg(BootRomMsg.BOOT_IMG4, DIR.TX, SEPMessage)
     def BootIMG4(self, msg):
         addr = msg.DATA << 0xC
@@ -59,11 +53,27 @@ class SEPROMTracer(SEPTracer):
         except ValueError:
             self.log(f"Unknown SEP message - {msg}")
 
+class SEPOSUnkFD(SEPTracer):
+    @msg(UnkFDMsg.REPORT_APP_STATUS, DIR.RX, SEPMessage)
+    def ReportAppStatus(self, msg):
+        app_id = msg.PARAM
+        app_status = msg.DATA
+        SEPOSApps[app_id]["status"] = app_status
+        print(f"SEPOS App: {SEPOSApps[app_id]['name']}, Status: {SEPOSApps[app_id]['status']}")
+
+    @msg(UnkFDMsg.REPORT_APP_NAME, DIR.RX, SEPMessage)
+    def ReportAppName(self, msg):
+        app_id = msg.PARAM
+        app_name = struct.pack('<Q', msg.DATA).decode().strip('\x00')
+        print(f"SEPOS app name: {app_name}")
+        SEPOSApps.setdefault(app_id, {"name": app_name})
+
 class SEPTracer(ASCTracer):
     ENDPOINTS = {
-        0x00: SEPTracer,
+        #0x00: SEPTracer,
         0xFF: SEPROMTracer,
-        0xFE: SEPROMTracer
+        0xFE: SEPROMTracer,
+        0xFD: SEPOSUnkFD
     }
 
     def handle_msg(self, direction, r0, r1):
