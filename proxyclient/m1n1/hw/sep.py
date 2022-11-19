@@ -31,7 +31,6 @@ class SEPMessage(Register64):
     PARAM = 31, 24
     DATA = 63, 32
 
-
 # TODO: make this class actually own the shared memory instead of just
 #       generating a static buffer if we actually need to read/write to
 #       individual items inside the shmem buffer

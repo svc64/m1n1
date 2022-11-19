@@ -1,12 +1,17 @@
 from m1n1.trace.asc import ASCTracer, EP, DIR, msg
 from m1n1.hw.sep import *
+import struct
+from collections import namedtuple
 
 ASCTracer = ASCTracer._reloadcls()
 
 SEPOSApps = {}
 
+shmem_base = None
+
 class SEPTracer(EP):
     BASE_MESSAGE = SEPMessage
+    ObjEntry = namedtuple("ObjEntry", "name sz offset")
 
     def debug_shell(self):
         self.hv.run_shell(locals())
@@ -16,15 +21,47 @@ class SEPTracer(EP):
         self.state.sram_addr = None
         self.state.verbose = 1
 
+    def GetChannelObjEntries(self):
+        addr = shmem_base
+        entries = []
+        while True:
+            obj_entry = self.tracer.ioread(addr, 16)
+            name, sz, offset = struct.unpack("<4sII", obj_entry[0:12])
+            name = name.decode()
+            if name == "llun":
+                break
+            else:
+                entries.append(self.ObjEntry._make((name, sz, offset)))
+            addr += 16
+        return entries
+
+    def GetChannelObjEntry(self, obj_name):
+        addr = shmem_base
+        while True:
+            obj_entry = self.tracer.ioread(addr, 16)
+            name, sz, offset = struct.unpack("<4sII", obj_entry[0:12])
+            name = name.decode()
+            if name == "llun":
+                break
+            elif name == obj_name:
+                return self.ObjEntry._make((name, sz, offset))
+            addr += 16
+
+    def dump_shmem(self):
+        if shmem_base:
+            self.log(self.GetChannelObjEntries())
+
     @msg(None, DIR.TX, SEPMessage)
     def TXMsg(self, msg):
         self.log(f">UNK {msg}")
-        self.debug_shell()
+        self.dump_shmem()
+        #self.debug_shell()
 
     @msg(None, DIR.RX, SEPMessage)
     def RXMsg(self, msg):
         self.log(f"<UNK {msg}")
-        self.debug_shell()
+        self.dump_shmem()
+        #self.debug_shell()
 
 class SEPROMTracer(SEPTracer):
     @msg(BootRomMsg.BOOT_IMG4, DIR.TX, SEPMessage)
@@ -35,9 +72,11 @@ class SEPROMTracer(SEPTracer):
 
     @msg(BootRomMsg.SET_SHMEM, DIR.TX, SEPMessage)
     def SetShmem(self, msg):
-        addr = msg.DATA << 0xC
-        self.shmem = addr
-        self.log(f"SEP shared memory: {hex(self.shmem)}")
+        global shmem_base
+        shmem_base = msg.DATA << 0xC
+        self.log(f"SEP shared memory: {hex(shmem_base)}")
+        self.dump_shmem()
+        self.debug_shell()
 
     @msg(None, DIR.TX, SEPMessage)
     def TXMsg(self, msg):
@@ -59,18 +98,20 @@ class SEPOSUnkFD(SEPTracer):
         app_id = msg.PARAM
         app_status = msg.DATA
         SEPOSApps[app_id]["status"] = app_status
-        print(f"SEPOS App: {SEPOSApps[app_id]['name']}, Status: {SEPOSApps[app_id]['status']}")
+        self.log(f"SEPOS App: {SEPOSApps[app_id]['name']} (ID: {hex(app_id)}), Status: {SEPOSApps[app_id]['status']}")
 
     @msg(UnkFDMsg.REPORT_APP_NAME, DIR.RX, SEPMessage)
     def ReportAppName(self, msg):
         app_id = msg.PARAM
         app_name = struct.pack('<Q', msg.DATA).decode().strip('\x00')
-        print(f"SEPOS app name: {app_name}")
+        self.log(f"SEPOS app name: {app_name} (ID: {hex(app_id)})")
         SEPOSApps.setdefault(app_id, {"name": app_name})
 
 class SEPTracer(ASCTracer):
     ENDPOINTS = {
-        #0x00: SEPTracer,
+        0x00: SEPTracer,
+        0x0E: SEPTracer,
+        0x13: SEPTracer,
         0xFF: SEPROMTracer,
         0xFE: SEPROMTracer,
         0xFD: SEPOSUnkFD
