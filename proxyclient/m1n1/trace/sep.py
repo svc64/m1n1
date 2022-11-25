@@ -8,10 +8,11 @@ ASCTracer = ASCTracer._reloadcls()
 SEPOSApps = {}
 
 shmem_base = None
+shmem_objects = None
 
 class SEPTracer(EP):
     BASE_MESSAGE = SEPMessage
-    ObjEntry = namedtuple("ObjEntry", "name sz offset")
+    ObjEntry = namedtuple("ObjEntry", "name sz offset data")
 
     def debug_shell(self):
         self.hv.run_shell(locals())
@@ -23,7 +24,7 @@ class SEPTracer(EP):
 
     def GetChannelObjEntries(self):
         addr = shmem_base
-        entries = []
+        entries = {}
         while True:
             obj_entry = self.tracer.ioread(addr, 16)
             name, sz, offset = struct.unpack("<4sII", obj_entry[0:12])
@@ -31,7 +32,8 @@ class SEPTracer(EP):
             if name == "llun":
                 break
             else:
-                entries.append(self.ObjEntry._make((name, sz, offset)))
+                data = self.tracer.ioread(shmem_base + offset, sz)
+                entries[name] = self.ObjEntry._make((name, sz, offset, data))
             addr += 16
         return entries
 
@@ -48,8 +50,16 @@ class SEPTracer(EP):
             addr += 16
 
     def dump_shmem(self):
+        global shmem_objects
         if shmem_base:
-            self.log(self.GetChannelObjEntries())
+            objs = self.GetChannelObjEntries()
+            if shmem_objects:
+                for obj in objs:
+                    if shmem_objects[obj] != objs[obj]:
+                        self.log(f"SHMEM {obj} = {objs[obj].data}")
+            else:
+                print(objs)
+            shmem_objects = objs
 
     @msg(None, DIR.TX, SEPMessage)
     def TXMsg(self, msg):
