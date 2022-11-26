@@ -152,7 +152,6 @@ class BaseASCTracer(ADTDevTracer):
             return self.hv.iface.writemem(dva, data)
 
     def set_endpoint(self, ep, ep_cls):
-        print(f"ep: {ep}, {ep_cls}")
         self.ENDPOINTS[ep] = ep_cls
         self._load_endpoints()
 
