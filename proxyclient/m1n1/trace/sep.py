@@ -1,9 +1,9 @@
-from m1n1.trace.asc import ASCTracer, EP, DIR, msg
+from m1n1.trace.asc import BaseASCTracer, EP, DIR, msg
 from m1n1.hw.sep import *
 import struct
 from collections import namedtuple
 
-ASCTracer = ASCTracer._reloadcls()
+BaseASCTracer = BaseASCTracer._reloadcls()
 
 SEPOSApps = {}
 
@@ -56,22 +56,35 @@ class SEPTracer(EP):
             if shmem_objects:
                 for obj in objs:
                     if shmem_objects[obj] != objs[obj]:
-                        self.log(f"SHMEM {obj} = {objs[obj].data}")
+                        #self.log(f"SHMEM {obj} = {objs[obj].data}")
+                        self.log(f"SHMEM {obj} changed = {hex(objs[obj].offset)}")
             else:
-                print(objs)
+                for obj in objs:
+                    print(f"SHMEM {obj} = {hex(objs[obj].offset)}")
             shmem_objects = objs
 
     @msg(None, DIR.TX, SEPMessage)
     def TXMsg(self, msg):
-        self.log(f">UNK {msg}")
         self.dump_shmem()
+        self.log(f">UNK {msg}")
         #self.debug_shell()
 
     @msg(None, DIR.RX, SEPMessage)
     def RXMsg(self, msg):
-        self.log(f"<UNK {msg}")
         self.dump_shmem()
+        self.log(f"<UNK {msg}")
         #self.debug_shell()
+
+class SEPCntlTracer(SEPTracer):
+    @msg(None, DIR.TX, SEPMessage)
+    def TXMsg(self, msg):
+        self.dump_shmem()
+        self.log(f">cntl {msg}")
+
+    @msg(None, DIR.RX, SEPMessage)
+    def RXMsg(self, msg):
+        self.dump_shmem()
+        self.log(f"<cntl {msg}")
 
 class SEPROMTracer(SEPTracer):
     @msg(BootRomMsg.BOOT_IMG4, DIR.TX, SEPMessage)
@@ -85,7 +98,6 @@ class SEPROMTracer(SEPTracer):
         global shmem_base
         shmem_base = msg.DATA << 0xC
         self.log(f"SEP shared memory: {hex(shmem_base)}")
-        self.dump_shmem()
         self.debug_shell()
 
     @msg(None, DIR.TX, SEPMessage)
@@ -103,23 +115,29 @@ class SEPROMTracer(SEPTracer):
             self.log(f"Unknown SEP message - {msg}")
 
 class SEPOSUnkFD(SEPTracer):
+    APP_ENDPOINTS = {
+        "cntl": SEPCntlTracer
+    }
+
     @msg(UnkFDMsg.REPORT_APP_STATUS, DIR.RX, SEPMessage)
     def ReportAppStatus(self, msg):
         app_id = msg.PARAM
         app_status = msg.DATA
         SEPOSApps[app_id]["status"] = app_status
-        self.log(f"SEPOS App: {SEPOSApps[app_id]['name']} (ID: {hex(app_id)}), Status: {SEPOSApps[app_id]['status']}")
+        self.log(f"SEPOS App: {SEPOSApps[app_id]['name']} (Endpoint: {hex(app_id)}), Status: {hex(SEPOSApps[app_id]['status'])}")
 
     @msg(UnkFDMsg.REPORT_APP_NAME, DIR.RX, SEPMessage)
     def ReportAppName(self, msg):
-        app_id = msg.PARAM
-        app_name = struct.pack('<Q', msg.DATA).decode().strip('\x00')
-        self.log(f"SEPOS app name: {app_name} (ID: {hex(app_id)})")
-        SEPOSApps.setdefault(app_id, {"name": app_name})
+        app_ep = msg.PARAM
+        app_name = struct.pack('>Q', msg.DATA).decode().strip('\x00')
+        self.log(f"SEPOS app name: {app_name} (Endpoint: {hex(app_ep)})")
+        if app_name in self.APP_ENDPOINTS:
+            self.log(f"Registering app endpoint: {app_name}")
+            self.tracer.set_endpoint(app_ep, self.APP_ENDPOINTS[app_name])
+        SEPOSApps.setdefault(app_ep, {"name": app_name})
 
-class SEPTracer(ASCTracer):
+class SEPTracer(BaseASCTracer):
     ENDPOINTS = {
-        0x00: SEPTracer,
         0x0E: SEPTracer,
         0x13: SEPTracer,
         0xFF: SEPROMTracer,

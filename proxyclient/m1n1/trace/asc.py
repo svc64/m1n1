@@ -151,6 +151,30 @@ class BaseASCTracer(ADTDevTracer):
         else:
             return self.hv.iface.writemem(dva, data)
 
+    def set_endpoint(self, ep, ep_cls):
+        print(f"ep: {ep}, {ep_cls}")
+        self.ENDPOINTS[ep] = ep_cls
+        self._load_endpoints()
+
+    def _load_endpoints(self):
+        for cls in type(self).mro():
+            eps = getattr(cls, "ENDPOINTS", None)
+            if eps is None:
+                break
+            for k, v in eps.items():
+                if k in self.epmap:
+                    continue
+                ep = v(self, k)
+                ep.dart = self.dart
+                self.epmap[k] = ep
+                if k in self.state.ep:
+                    ep.state.__dict__.update(self.state.ep[k])
+                self.state.ep[k] = ep.state.__dict__
+                if getattr(self.ep, ep.name, None):
+                    ep.name = f"{ep.name}{k:02x}"
+                setattr(self.ep, ep.name, ep)
+                ep.start()
+
     def start(self, dart=None):
         super().start()
         self.dart = dart
@@ -160,26 +184,9 @@ class BaseASCTracer(ADTDevTracer):
             if not callable(i) or not getattr(i, "is_message", False):
                 continue
             self.msgmap[i.direction, i.endpoint, i.message] = getattr(self, name), name, i.regtype
-
         self.epmap = {}
         self.ep = EPContainer()
-        for cls in type(self).mro():
-            eps = getattr(cls, "ENDPOINTS", None)
-            if eps is None:
-                break
-            for k, v in eps.items():
-                if k in self.epmap:
-                    continue
-                ep = v(self, k)
-                ep.dart = dart
-                self.epmap[k] = ep
-                if k in self.state.ep:
-                    ep.state.__dict__.update(self.state.ep[k])
-                self.state.ep[k] = ep.state.__dict__
-                if getattr(self.ep, ep.name, None):
-                    ep.name = f"{ep.name}{k:02x}"
-                setattr(self.ep, ep.name, ep)
-                ep.start()
+        self._load_endpoints()
 
 # System endpoints
 
